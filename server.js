@@ -1,111 +1,45 @@
-/* ******************************************
- * This server.js file is the primary file of the 
- * application. It is used to control the project.
- *******************************************/
-/* ***********************
- * Require Statements
- *************************/
-const express = require("express")
-const expressLayouts = require("express-ejs-layouts")
-const env = require("dotenv").config()
-const app = express()
-const baseController = require("./controllers/baseController")
-const utilities = require("./utilities/")
-const session = require("express-session")
-const pool = require('./database/')
-const bodyParser = require("body-parser")
-const cookieParser = require("cookie-parser")
+// server.js
+const express = require('express');
+const session = require('express-session');
+const { Pool } = require('pg');
+const path = require('path');
 
-/* ***********************
- * Middleware
- * ************************/
+const app = express();
+
+// ----- Middleware -----
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ----- Session -----
 app.use(session({
-  store: new (require('connect-pg-simple')(session))({
-    createTableIfMissing: true,
-    pool,
-  }),
-  secret: process.env.SESSION_SECRET,
-  resave: true,
+  secret: process.env.SESSION_SECRET || 'defaut_secret',
+  resave: false,
   saveUninitialized: true,
-  name: 'sessionId',
-}))
+  cookie: { secure: false } // mettre true si HTTPS
+}));
 
-// Express Messages Middleware
-app.use(require('connect-flash')())
-app.use(function(req, res, next){
-  res.locals.messages = require('express-messages')(req, res)
-  next()
-})
+// ----- PostgreSQL Pool -----
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false } // requis sur Render
+});
 
-// Use body parser
-app.use(bodyParser.json())
-app.use(bodyParser.urlencoded({ extended: true })) // for parsing application/x-www-form-urlencoded
+// Exemple de route pour tester la DB
+app.get('/test-db', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT NOW()');
+    res.json({ time: result.rows[0].now });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Erreur base de données');
+  }
+});
 
-// Use cookie parser
-app.use(cookieParser())
+// ----- Routes statiques (si nécessaire) -----
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Use token validation
-app.use(utilities.checkJWTToken)
-
-/* ***********************
- * View Engine and Template
- *************************/
-app.set("view engine", "ejs")
-app.use(expressLayouts)
-app.set("layout", "./layouts/layout")
-
-/* ***********************
- * Routes
- *************************/
-// static route
-app.use(require("./routes/static"))
-
-// index route
-app.get("/", utilities.handleErrors(baseController.buildHome))
-
-// inventory route
-app.use("/inv", require("./routes/inventoryRoute"))
-
-// account route
-app.use("/account", require("./routes/accountRoute"))
-
-// inbox route
-app.use("/inbox", require("./routes/messageRoute"))
-
-// File Not Found Route - must be last route in list
-app.use(async (req, res, next) => {
-  next({
-    status: 404, 
-    message: 'This is not the page you are looking for... Go about your business... Move along...'
-  })
-})
-
-/* ***********************
-* Express Error Handler
-* Place after all other middleware
-*************************/
-app.use(async (err, req, res, next) => {
-  let nav = await utilities.getNav()
-  console.error(`Error at: "${req.originalUrl}": ${err.message}`)
-  if(err.status == 404) {message = err.message} else {message = 'Oops, looks like something went wrong! Maybe try a different route?'}
-  res.render("errors/error", {
-    title: err.status || 'Server Error',
-    message,
-    nav,
-  })
-})
-
-
-/* ***********************
- * Local Server Information
- * Values from .env (environment) file
- *************************/
-const port = process.env.PORT
-const host = process.env.HOST
-
-/* ***********************
- * Log statement to confirm server operation
- *************************/
-app.listen(port, () => {
-  console.log(`app listening on ${host}:${port}`)
-})
+// ----- Port dynamique -----
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`Application en écoute sur le port ${PORT}`);
+});
